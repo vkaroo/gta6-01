@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Palmera Bay — Open World</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0e1420;
+    font-family: 'Segoe UI', system-ui, sans-serif; color: #fff; }
+  #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .hud { position: fixed; z-index: 5; pointer-events: none; text-shadow: 0 2px 4px rgba(0,0,0,.7); }
+  #hud-tl { top: 16px; left: 16px; }
+  #health-bar { width: 200px; height: 14px; background: rgba(0,0,0,.55); border: 1px solid #fff3;
+    border-radius: 7px; overflow: hidden; }
+  #health-fill { height: 100%; width: 100%; background: linear-gradient(90deg,#2eff8a,#a8ff5e); }
+  #health-text { font-size: 12px; margin-top: 2px; }
+  #cash { font-size: 26px; font-weight: 800; color: #7dff9a; margin-top: 6px; }
+  #hud-tr { top: 16px; right: 16px; text-align: right; }
+  #stars { font-size: 30px; letter-spacing: 4px; }
+  #hud-tc { top: 14px; left: 50%; transform: translateX(-50%); text-align: center; width: 520px; }
+  #objective-title { font-size: 17px; font-weight: 800; color: #ffd23c; }
+  #objective { font-size: 15px; }
+  #speed { bottom: 20px; right: 20px; font-size: 30px; font-weight: 800; }
+  #minimap { position: fixed; left: 16px; bottom: 16px; z-index: 5; width: 190px; height: 190px;
+    border: 2px solid rgba(255,255,255,.6); border-radius: 8px; background: #20262b; }
+  #toast { position: fixed; left: 50%; bottom: 110px; transform: translateX(-50%); z-index: 6;
+    background: rgba(0,0,0,.7); padding: 10px 22px; border-radius: 8px; font-size: 17px;
+    opacity: 0; transition: opacity .3s; pointer-events: none; text-align: center; max-width: 640px; }
+  #story { position: fixed; left: 50%; top: 110px; transform: translateX(-50%); z-index: 6;
+    background: rgba(0,0,0,.62); padding: 12px 22px; border-radius: 8px; font-size: 16px; line-height: 1.45;
+    opacity: 0; transition: opacity .4s; pointer-events: none; text-align: center; max-width: 620px; }
+  #overlay { position: fixed; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(160deg, rgba(10,30,60,.88), rgba(180,80,20,.55)); }
+  #overlay .card { text-align: center; max-width: 620px; padding: 28px; }
+  #overlay h1 { font-size: 64px; margin: 0; letter-spacing: 2px; color: #ffd23c;
+    text-shadow: 0 4px 0 #b0523c, 0 8px 24px rgba(0,0,0,.6); }
+  #overlay h2 { font-size: 20px; margin: 4px 0 16px; color: #ffe9a8; font-weight: 600; }
+  #overlay p { font-size: 15px; line-height: 1.55; color: #eef4ff; }
+  #overlay .controls { font-size: 14px; background: rgba(0,0,0,.35); border-radius: 8px;
+    padding: 12px 16px; text-align: left; display: inline-block; margin: 10px 0 18px; }
+  #start-btn { pointer-events: auto; font-size: 22px; font-weight: 800; padding: 14px 46px;
+    border: none; border-radius: 10px; background: #ffd23c; color: #1c1c1c; cursor: pointer; }
+  #start-btn:hover { background: #ffe066; }
+  #hint { margin-top: 14px; font-size: 12px; color: #cfe0ff; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.min.js" } }
+</script>
+</head>
+<body>
+<canvas id="game" aria-label="Palmera Bay: open-world game. Drive, steal cars, run missions, lose the cops."></canvas>
+<p id="status" role="status" aria-live="polite"></p>
+
+<div class="hud" id="hud-tl">
+  <div id="health-bar"><div id="health-fill"></div></div>
+  <div id="health-text">100</div>
+  <div id="cash">$250</div>
+</div>
+<div class="hud" id="hud-tr"><div id="stars">☆☆☆☆☆</div></div>
+<div class="hud" id="hud-tc">
+  <div id="objective-title">The First Job</div>
+  <div id="objective">Drive to the docks marker</div>
+</div>
+<div class="hud" id="speed"></div>
+<canvas id="minimap" width="190" height="190"></canvas>
+<div id="toast"></div>
+<div id="story"></div>
+
+<div id="overlay">
+  <div class="card">
+    <h1>PALMERA BAY</h1>
+    <h2>An open-world story — drive it, steal it, survive it.</h2>
+    <p>Danny Reyes just rolled into Palmera Bay with $250, a borrowed jacket and a debt to
+    Vic Marino. Three jobs stand between him and a clean slate — if the Palmera Bay PD lets him.</p>
+    <div class="controls">
+      <b>WASD</b> move / drive &nbsp;·&nbsp; <b>Shift</b> run &nbsp;·&nbsp; <b>Mouse drag</b> camera<br>
+      <b>E</b> enter / exit car &nbsp;·&nbsp; <b>Click</b> shoot &nbsp;·&nbsp; <b>F</b> punch &nbsp;·&nbsp; <b>M</b> story<br>
+      Steal cars, run the three jobs, and lose the cops when the stars come out.
+    </div><br>
+    <button id="start-btn">▶ &nbsp;START THE JOB</button>
+    <div id="hint">Progress saves automatically in this browser. A 2D top-down mode loads if 3D is unavailable.</div>
+  </div>
+</div>
+
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
