@@ -103,3 +103,25 @@ export function updateCombat(c, dt) {
     }
   }
 }
+
+// Stage a gunshot for a screenshot: a bright tracer from `from` to `to`
+// plus a burst of sparks at the impact point, both held for a full minute
+// so a headless capture cannot miss them between frames. The tracer is a
+// thin glowing box, not a 1px line — a line is invisible at screenshot
+// scale. Used only by the staged mission shot — real shots still go
+// through shoot() above.
+export function stageTracer(c, from, to) {
+  addTracer(c, from, to);
+  const held = c.tracers[c.tracers.length - 1];
+  if (held) held.life = 60;
+  const len = Math.hypot(to.x - from.x, to.y - from.y, to.z - from.z);
+  const beam = new c.THREE.Mesh(
+    new c.THREE.BoxGeometry(0.12, 0.12, len),
+    new c.THREE.MeshBasicMaterial({ color: 0xffe9a0 }));
+  beam.position.set((from.x + to.x) / 2, (from.y + to.y) / 2, (from.z + to.z) / 2);
+  beam.lookAt(to.x, to.y, to.z);
+  c.scene.add(beam);
+  c.tracers.push({ line: beam, life: 60 });
+  addSparks(c, to, 12);
+  for (const s of c.sparks) s.life = 60;
+}
