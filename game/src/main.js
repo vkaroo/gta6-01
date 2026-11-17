@@ -7,7 +7,7 @@ import { makePlayer, updatePlayer } from './player.js';
 import { makeCar, driveCar, syncCar } from './vehicles.js';
 import { makeTraffic, updateTraffic, pedsNear, removePed } from './traffic.js';
 import { makePolice, addWanted, updatePolice } from './police.js';
-import { makeMissions, updateMissions, currentMission, currentObjective } from './missions.js';
+import { makeMissions, updateMissions, currentMission, currentObjective, targetCoords } from './missions.js';
 import { makeCombat, shoot, punch, updateCombat } from './combat.js';
 import { makeHud, showToast, showStory, updateHud, drawMinimap } from './hud.js';
 import { makeAudio, ensureAudio, updateAudio, playShot, playChime } from './audio.js';
@@ -40,17 +40,37 @@ async function boot() {
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(CFG.colors.sky);
-  scene.fog = new THREE.Fog(0xa8c8dd, 180, 520);
+  // gradient sky dome: deep blue overhead, warm haze at the horizon
+  const skyCanvas = document.createElement('canvas');
+  skyCanvas.width = 4; skyCanvas.height = 256;
+  const sg = skyCanvas.getContext('2d');
+  const grad = sg.createLinearGradient(0, 0, 0, 256);
+  grad.addColorStop(0, '#2f7fc9');
+  grad.addColorStop(0.55, '#8ec9e8');
+  grad.addColorStop(0.72, '#ffd9a0');
+  grad.addColorStop(1, '#e8b07a');
+  sg.fillStyle = grad; sg.fillRect(0, 0, 4, 256);
+  const skyTex = new THREE.CanvasTexture(skyCanvas);
+  skyTex.colorSpace = THREE.SRGBColorSpace;
+  const sky = new THREE.Mesh(
+    new THREE.SphereGeometry(760, 24, 16),
+    new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide, fog: false }));
+  scene.add(sky);
+  scene.fog = new THREE.Fog(0xe0c49a, 200, 560);
   const camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.1, 900);
-  const sun = new THREE.DirectionalLight(CFG.colors.sun, 2.6);
+  const sun = new THREE.DirectionalLight(CFG.colors.sun, 2.8);
   sun.position.set(120, 180, 60);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
-  sun.shadow.camera.left = -260; sun.shadow.camera.right = 260;
-  sun.shadow.camera.top = 260; sun.shadow.camera.bottom = -260;
+  sun.shadow.mapSize.set(1024, 1024);
+  // tight shadow frustum that follows the player (see tick): crisp shadows
+  // near the action instead of a washed-out map stretched over the city
+  sun.shadow.camera.left = -170; sun.shadow.camera.right = 170;
+  sun.shadow.camera.top = 170; sun.shadow.camera.bottom = -170;
+  sun.shadow.camera.near = 20; sun.shadow.camera.far = 600;
+  sun.shadow.bias = -0.0004;
   scene.add(sun);
-  scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x8a7a5a, 1.1));
+  scene.add(sun.target);
+  scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x9a8a6a, 1.2));
 
   // --- world + systems ---
   const world = buildWorld(THREE, rng);
@@ -72,11 +92,14 @@ async function boot() {
     scene.add(car.group);
     parkedCars.push(car);
   }
-  scene.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  // shadows only show where something receives them: ground, roads and
+  // walls take them, everything else casts them
+  scene.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  sky.castShadow = false; sky.receiveShadow = false; // the dome must never shade the city
 
   // --- game state ---
   const G = {
-    THREE, rng, scene, world, player, traffic, police, missions, combat, hud, audio,
+    THREE, rng, scene, world, player, traffic, police, missions, combat, hud, audio, sun,
     started: false, shot,
     playerCar: null, looseCars: [],
     camYaw: 0, camPitch: 0.42, camMode: 'follow', camHigh: false,
@@ -86,6 +109,8 @@ async function boot() {
   };
   G.enterCar = (car, silent) => enterCar(G, car, silent);
   G.spawnWaitingFare = (x, z) => spawnWaitingFare(G, x, z);
+  // debug handle for playtests: window.__palmera exposes live game state
+  window.__palmera = G;
 
   // restore save (unless a staged shot overrides it)
   const saved = loadGame();
@@ -93,10 +118,12 @@ async function boot() {
     player.cash = saved.cash;
     player.x = saved.x; player.z = saved.z;
     player.health = saved.health;
-    missions.index = Math.min(saved.missionIndex, 2);
+    missions.index = Math.min(saved.missionIndex, 5);
     missions.stage = saved.missionStage || 0;
-    if (missions.index === 1) missions.target = missions.stage === 1 ? missions.targets.hotel : missions.targets.pickup;
-    if (missions.index === 2) missions.target = missions.targets.hideout;
+    missions.target = targetCoords(missions.index, missions.stage);
+    // the cab fare's waiting passenger is cosmetic but should be standing
+    // at the pickup again after a reload, not vanished
+    if (missions.index === 1 && missions.stage === 0) missions.passengerWaiting = true;
     missions.marker.position.set(missions.target.x, 13, missions.target.z);
     missions.ring.position.set(missions.target.x, 0.3, missions.target.z);
     showToast(hud, 'Save loaded — welcome back, Danny.', 4);
@@ -179,6 +206,10 @@ function tick(G, dt, now) {
   const { player, police, missions, combat, hud, audio, world } = G;
   const inCar = !!G.playerCar;
 
+  // sun + shadow frustum follow the player so shadows stay crisp
+  G.sun.position.set(player.x + 120, 180, player.z + 60);
+  G.sun.target.position.set(player.x, 0, player.z);
+
   // movement
   if (inCar) {
     const prevSpeed = G.playerCar.speed;
@@ -196,10 +227,12 @@ function tick(G, dt, now) {
   // traffic + pedestrians
   updateTraffic(G.traffic, world, dt, { x: player.x, z: player.z });
 
-  // police + wanted
-  updatePolice(police, player, G.playerCar, dt,
-    () => busted(G),
-    (d) => damagePlayer(G, d));
+  // police + wanted (frozen in the staged shootout shot so the frame holds)
+  if (!G.freezePolice) {
+    updatePolice(police, player, G.playerCar, dt,
+      () => busted(G),
+      (d) => damagePlayer(G, d));
+  }
 
   // missions
   const cashBefore = player.cash;
@@ -210,6 +243,9 @@ function tick(G, dt, now) {
     clearWanted: () => { police.wanted = 0; police.calmTimer = 0; },
     toast: (t) => showToast(hud, t, 4),
   }, dt);
+  // mission story beats surface as the card while their timer runs —
+  // but never in a staged shot, where the card would cover the scene
+  if (!G.shot && missions.messageTimer > 0) showStory(hud, missions.message, missions.messageTimer);
   if (player.cash !== cashBefore) doSave(G);
   if (missions.passengerWaiting && !missions.passenger) {
     missions.passenger = spawnWaitingFare(G, missions.targets.pickup.x - 2, missions.targets.pickup.z + 2);
@@ -218,6 +254,8 @@ function tick(G, dt, now) {
 
   // combat timers + particles
   updateCombat(combat, dt);
+  // muzzle flash on Danny's pistol while the shot is fresh
+  player.gunFlash.visible = combat.muzzle > 0 && !inCar;
 
   // health regen when calm
   if (police.wanted === 0 && player.health < CFG.player.health) {
