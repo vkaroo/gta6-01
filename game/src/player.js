@@ -24,14 +24,22 @@ export function makePlayer(THREE, scene) {
   armL.position.set(-0.5, 1.15, 0);
   const armR = armL.clone();
   armR.position.x = 0.5;
-  g.add(torso, head, cap, legL, legR, armL, armR);
+  // pistol in the right hand, always carried — it is what the click fires
+  const gun = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.18, 0.55),
+    new THREE.MeshLambertMaterial({ color: 0x1c1c1c }));
+  gun.position.set(0.5, 1.02, 0.35);
+  const gunFlash = new THREE.Mesh(new THREE.SphereGeometry(0.24, 8, 6),
+    new THREE.MeshBasicMaterial({ color: 0xffe9a0 }));
+  gunFlash.position.set(0.5, 1.02, 0.68);
+  gunFlash.visible = false;
+  g.add(torso, head, cap, legL, legR, armL, armR, gun, gunFlash);
   scene.add(g);
 
   const state = {
     group: g, x: 0, z: 0, angle: 0, speed: 0,
     health: CFG.player.health, cash: 250,
     walking: false, running: false, moving: false,
-    legL, legR, armL, armR, walkPhase: 0,
+    legL, legR, armL, armR, walkPhase: 0, gunFlash,
   };
   return state;
 }
