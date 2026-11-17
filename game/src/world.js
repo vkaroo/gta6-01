@@ -2,8 +2,9 @@
 // Returns the render group plus the data other systems need (colliders, streets, spawns).
 import { CFG, PALETTES } from './config.js';
 import { pick, range, rangeInt, chance } from './random.js';
+import { buildDockBlock, buildBeachBlock, buildBoardwalk } from './districts.js';
 
-function windowTexture(THREE, rng) {
+function windowTexture(THREE, rng, warm) {
   const c = document.createElement('canvas');
   c.width = 128; c.height = 256;
   const g = c.getContext('2d');
@@ -11,7 +12,9 @@ function windowTexture(THREE, rng) {
   g.fillStyle = '#f7f3ea'; g.fillRect(0, 0, 128, 256);
   for (let y = 8; y < 248; y += 22) {
     for (let x = 8; x < 120; x += 20) {
-      const lit = rng() < 0.35;
+      // warm variant: most windows glow amber, like evening lights on.
+      // cool variant: most windows are dark blue glass.
+      const lit = warm ? rng() < 0.55 : rng() < 0.15;
       g.fillStyle = lit ? '#ffcf5e' : (rng() < 0.5 ? '#7d94a6' : '#5d7488');
       g.fillRect(x, y, 13, 14);
     }
@@ -41,6 +44,7 @@ function makePalm(THREE, rng) {
     new THREE.MeshLambertMaterial({ color: 0x6b4a2a }));
   nuts.position.y = 5.9;
   palm.add(nuts);
+  palm.traverse((o) => { if (o.isMesh) o.castShadow = true; });
   return palm;
 }
 
@@ -61,6 +65,7 @@ export function buildWorld(THREE, rng) {
     new THREE.MeshLambertMaterial({ color: CFG.colors.ground }));
   ground.rotation.x = -Math.PI / 2;
   ground.position.y = -0.05;
+  ground.receiveShadow = true;
   group.add(ground);
 
   const sea = new THREE.Mesh(
@@ -75,7 +80,11 @@ export function buildWorld(THREE, rng) {
     new THREE.MeshLambertMaterial({ color: 0xe8d9a8 }));
   beach.rotation.x = -Math.PI / 2;
   beach.position.set(0, 0, -half - 13);
+  beach.receiveShadow = true;
   group.add(beach);
+
+  // boardwalk, umbrellas and lifeguard tower on the sand
+  buildBoardwalk(THREE, rng, group, half, makePalm);
 
   // --- roads + sidewalks + markings ---
   const roadMat = new THREE.MeshLambertMaterial({ color: CFG.colors.road });
@@ -87,6 +96,7 @@ export function buildWorld(THREE, rng) {
       road.rotation.x = -Math.PI / 2;
       if (!horizontal) road.rotation.z = Math.PI / 2;
       road.position.set(horizontal ? 0 : s, 0.01, horizontal ? s : 0);
+      road.receiveShadow = true;
       group.add(road);
       // sidewalks on both sides
       for (const side of [-1, 1]) {
@@ -96,6 +106,7 @@ export function buildWorld(THREE, rng) {
         if (!horizontal) walk.rotation.z = Math.PI / 2;
         const off = side * (roadWidth / 2 + CFG.city.sidewalk / 2);
         walk.position.set(horizontal ? 0 : s + off, 0.02, horizontal ? s + off : 0);
+        walk.receiveShadow = true;
         group.add(walk);
       }
       // dashed center line
@@ -109,8 +120,36 @@ export function buildWorld(THREE, rng) {
     }
   }
 
+  // zebra crossings + stop signs at the four central intersections
+  const zebraMat = new THREE.MeshBasicMaterial({ color: 0xf2f2f2 });
+  for (const ix of [streets[3], streets[4], streets[5]]) {
+    for (const iz of [streets[3], streets[4], streets[5]]) {
+      for (let k = -2; k <= 2; k++) {
+        const stripe = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 5.5), zebraMat);
+        stripe.rotation.x = -Math.PI / 2;
+        stripe.position.set(ix + k * 2.6, 0.03, iz + 9);
+        group.add(stripe);
+        const stripe2 = new THREE.Mesh(new THREE.PlaneGeometry(5.5, 1.2), zebraMat);
+        stripe2.rotation.x = -Math.PI / 2;
+        stripe2.position.set(ix + 9, 0.03, iz + k * 2.6);
+        group.add(stripe2);
+      }
+      // stop sign on the south-east corner of the crossing
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 2.6, 6),
+        new THREE.MeshLambertMaterial({ color: 0x8a8f96 }));
+      post.position.set(ix + 9, 1.3, iz + 9);
+      group.add(post);
+      const sign = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 0.08, 8),
+        new THREE.MeshLambertMaterial({ color: 0xc23b2e }));
+      sign.rotation.x = Math.PI / 2;
+      sign.position.set(ix + 9, 2.8, iz + 9);
+      group.add(sign);
+    }
+  }
+
   // --- buildings, parks, parking lots ---
-  const winTex = windowTexture(THREE, rng);
+  const winWarm = windowTexture(THREE, rng, true);
+  const winCool = windowTexture(THREE, rng, false);
   const boxGeo = new THREE.BoxGeometry(1, 1, 1);
   for (let bi = 0; bi < blocks; bi++) {
     for (let bj = 0; bj < blocks; bj++) {
@@ -119,6 +158,9 @@ export function buildWorld(THREE, rng) {
       const x1 = streets[bi + 1] - roadWidth / 2 - CFG.city.sidewalk;
       const z1 = streets[bj + 1] - roadWidth / 2 - CFG.city.sidewalk;
       const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
+      // east edge is the docks, north row is the beachfront hotels
+      if (bi >= 6) { buildDockBlock(THREE, rng, group, colliders, x0, z0, x1, z1); continue; }
+      if (bj === 0) { buildBeachBlock(THREE, rng, group, colliders, x0, z0, x1, z1); continue; }
       const roll = rng();
       if (roll < 0.14) {
         // park: palms + grass
@@ -126,6 +168,7 @@ export function buildWorld(THREE, rng) {
           new THREE.MeshLambertMaterial({ color: 0x5da85e }));
         grass.rotation.x = -Math.PI / 2;
         grass.position.set(cx, 0.04, cz);
+        grass.receiveShadow = true;
         group.add(grass);
         for (let p = 0; p < 7; p++) {
           const palm = makePalm(THREE, rng);
@@ -162,16 +205,37 @@ export function buildWorld(THREE, rng) {
         const h = tall ? range(rng, 34, 58) : range(rng, 7, 18);
         const bx = count === 1 ? cx : range(rng, x0 + w / 2 + 1, x1 - w / 2 - 1);
         const bz = count === 1 ? cz : range(rng, z0 + d / 2 + 1, z1 - d / 2 - 1);
-        const mat = new THREE.MeshLambertMaterial({ color: pal.wall, map: winTex });
+        const tex = chance(rng, 0.5) ? winWarm : winCool;
+        const wallCol = new THREE.Color(pal.wall);
+        wallCol.offsetHSL(0, 0, range(rng, -0.05, 0.05));
+        const mat = new THREE.MeshLambertMaterial({ color: wallCol, map: tex });
         const mesh = new THREE.Mesh(boxGeo, mat);
         mesh.scale.set(w, h, d);
         mesh.position.set(bx, h / 2, bz);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
         group.add(mesh);
         const roof = new THREE.Mesh(boxGeo,
           new THREE.MeshLambertMaterial({ color: pal.roof }));
         roof.scale.set(w + 0.6, 0.7, d + 0.6);
         roof.position.set(bx, h + 0.35, bz);
+        roof.castShadow = true;
         group.add(roof);
+        // rooftop clutter: AC box on most roofs, antenna on towers
+        if (chance(rng, 0.6)) {
+          const ac = new THREE.Mesh(boxGeo,
+            new THREE.MeshLambertMaterial({ color: 0x8a8f96 }));
+          ac.scale.set(2.2, 1, 2.2);
+          ac.position.set(bx + w / 4, h + 1.2, bz);
+          ac.castShadow = true;
+          group.add(ac);
+        }
+        if (tall && chance(rng, 0.5)) {
+          const ant = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.12, 6, 5),
+            new THREE.MeshLambertMaterial({ color: 0x2c2f33 }));
+          ant.position.set(bx - w / 4, h + 3.5, bz);
+          group.add(ant);
+        }
         colliders.push({ minX: bx - w / 2, maxX: bx + w / 2, minZ: bz - d / 2, maxZ: bz + d / 2 });
       }
       // palms along the block edge
